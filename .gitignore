@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+out/*.csv
+out/*.xlsx
+# артефакт демонстрационного прогона передаётся вместе с проектом
+!out/ARTIFACT_*.csv
+!out/ARTIFACT_*.xlsx
+out/raw/
+.DS_Store
