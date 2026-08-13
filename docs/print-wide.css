@@ -1,0 +1,46 @@
+/* Раскрытие раскладок в печати.
+ *
+ * Зачем: медиазапросы (min-width: 760px) считаются от окна браузера, а при
+ * печати из headless-Chrome окно фиксировано и уже брейкпоинта — раскладки
+ * схлопываются в одну колонку, слайд вытягивается и обрезается по кадру.
+ *
+ * Правила ниже дословно повторяют печатные метрики самой системы
+ * (.is-print-metrics в core.css) — тем же набором, каким она меряет кадр.
+ * Ничего нового не изобретается, экранный вид не затрагивается.
+ */
+@media print {
+  .cols   { grid-template-columns: 1fr 1fr; gap: var(--grid-gap); }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); gap: var(--grid-gap); }
+  .split  { grid-template-columns: 1.15fr 1fr; gap: var(--grid-gap); align-items: center; }
+  .auto   { gap: var(--grid-gap); }
+  .kpis   { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-7); }
+
+  .flow   { flex-direction: row; align-items: stretch; gap: var(--s-5); }
+  .flow__arr {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-self: center;
+    padding-top: var(--s-5);
+  }
+  .flow .flow__node.block {
+    border-top: var(--hair) solid var(--line-ink);
+    padding-top: var(--p-block-pad);
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .head.is-split {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: var(--s-8);
+    align-items: start;
+  }
+  .head.is-split .eyebrow { grid-column: 1 / -1; }
+
+  .foot {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s-8);
+  }
+}
