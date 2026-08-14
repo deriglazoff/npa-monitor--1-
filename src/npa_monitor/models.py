@@ -19,6 +19,7 @@ COLUMNS = [
     "status",
     "department",
     "url",
+    "content_path",
     "topics",
     "keywords",
 ]
@@ -32,7 +33,8 @@ HEADERS_RU = {
     "status_change_date": "Дата смены статуса",
     "status": "Статус / стадия",
     "department": "Ведомство",
-    "url": "Ссылка",
+    "url": "Ссылка на портал",
+    "content_path": "Файл",
     "topics": "Направления",
     "keywords": "Сработавшие слова",
 }
@@ -49,6 +51,7 @@ class Document:
     status: str = ""
     department: str = ""
     url: str = ""
+    content_path: str = ""
     topics: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
 

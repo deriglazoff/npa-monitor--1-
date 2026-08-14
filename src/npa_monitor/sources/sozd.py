@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -117,3 +119,47 @@ def collect(date_from: str, date_to: str, max_pages: int = 50) -> list[Document]
             break
 
     return docs
+
+
+def fetch_content(doc: Document, folder: Path) -> Path | None:
+    """Вложения с карточки законопроекта; если их нет — HTML страницы."""
+    from ..content import filename_from_url, looks_like_file, write_bytes
+
+    if not doc.url:
+        return None
+    fetcher = Fetcher("sozd")
+    resp = fetcher.get(doc.url)
+    html_path = write_bytes(folder, "bill.html", resp.content)
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    first: Path | None = None
+    seen: set[str] = set()
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if not looks_like_file(href):
+            continue
+        full = urljoin(doc.url, href)
+        host = urlparse(full).netloc.lower()
+        if host and "duma.gov.ru" not in host:
+            continue
+        if full in seen:
+            continue
+        seen.add(full)
+        try:
+            blob = fetcher.get(full)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("sozd вложение %s: %s", full, exc)
+            continue
+        if not blob.content:
+            continue
+        name = filename_from_url(full, "attachment")
+        path = write_bytes(
+            folder,
+            name,
+            blob.content,
+            content_type=blob.headers.get("Content-Type", ""),
+            content_disposition=blob.headers.get("Content-Disposition", ""),
+        )
+        if first is None:
+            first = path
+    return first or html_path

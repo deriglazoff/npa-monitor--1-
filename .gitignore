@@ -2,8 +2,11 @@
 __pycache__/
 *.pyc
 .env
+build/
+dist/
 out/*.csv
 out/*.xlsx
+out/*_content/
 # артефакт демонстрационного прогона передаётся вместе с проектом
 !out/ARTIFACT_*.csv
 !out/ARTIFACT_*.xlsx

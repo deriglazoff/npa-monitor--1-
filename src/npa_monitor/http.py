@@ -50,10 +50,16 @@ class Fetcher:
             self.session.proxies = {"http": proxy, "https": proxy}
 
     def get(self, url: str, params: dict | None = None) -> requests.Response:
+        return self._request("GET", url, params=params)
+
+    def post(self, url: str, json: dict | None = None) -> requests.Response:
+        return self._request("POST", url, json=json)
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         last: Exception | None = None
         for attempt in range(1, self.retries + 1):
             try:
-                resp = self.session.get(url, params=params, timeout=self.timeout)
+                resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
                 resp.raise_for_status()
                 time.sleep(self.delay)
                 return resp

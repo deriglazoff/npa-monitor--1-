@@ -21,6 +21,7 @@ WIDTHS = {
     "status": 46,
     "department": 34,
     "url": 46,
+    "content_path": 52,
     "topics": 30,
     "keywords": 30,
 }
@@ -45,6 +46,8 @@ def to_xlsx(docs: list[Document], path: Path) -> Path:
 
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="2F5496")
+    link_font = Font(color="0563C1", underline="single")
+    content_col = COLUMNS.index("content_path") + 1
 
     ws.append([HEADERS_RU[c] for c in COLUMNS])
     for cell in ws[1]:
@@ -55,6 +58,11 @@ def to_xlsx(docs: list[Document], path: Path) -> Path:
     for doc in docs:
         row = doc.as_row()
         ws.append([row[c] for c in COLUMNS])
+        href = (row.get("content_path") or "").strip()
+        if href:
+            cell = ws.cell(ws.max_row, content_col)
+            cell.hyperlink = href
+            cell.font = link_font
 
     for idx, col in enumerate(COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = WIDTHS.get(col, 20)

@@ -10,7 +10,9 @@
             &dateFrom=&dateTo=&Tid=&phrase=&pagesize=20
     Первая — события, пресс-релизы и интервью; вторая — новости и
     аналитические материалы. Обе отдают JSON: name_doc, DT (дата),
-    doc_htm (id), TBLType (events | press | interview).
+    doc_htm (id или путь), TBLType (events | press | interview).
+    У eventandpress doc_htm — id карточки (/press/event/?id=…).
+    У new_ent — уже путь на сайте (/Queries/…/File/…, /analytics/…#a_…).
     Проверено: на 13.08.2026 первая лента обрывалась на 27.07, вторая
     содержала материалы по 12.08 — то есть по одной ленте свежая неделя
     выглядела бы пустой.
@@ -32,7 +34,8 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from urllib.parse import urljoin
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -76,6 +79,18 @@ _TBL_LABELS = {
     "events": "Событие / материал",
     "interview": "Интервью",
 }
+
+
+def _item_url(doc_id: str) -> str:
+    """Собрать URL карточки: путь new_ent как есть, id eventandpress — через /press/event/."""
+    doc_id = (doc_id or "").strip()
+    if not doc_id:
+        return f"{BASE}/news/"
+    if doc_id.startswith(("http://", "https://")):
+        return doc_id
+    if doc_id.startswith("/"):
+        return urljoin(BASE, doc_id)
+    return f"{BASE}/press/event/?id={doc_id}"
 
 
 def _guess_type(title: str, tbl_type: str) -> str:
@@ -130,7 +145,7 @@ def _collect_feed(
             title = (row.get("name_doc") or "").strip()
             if not title:
                 continue
-            url = f"{BASE}/press/event/?id={doc_id}" if doc_id else f"{BASE}/news/"
+            url = _item_url(doc_id)
             if url in seen:
                 continue
             seen.add(url)
@@ -228,3 +243,124 @@ def collect(date_from: str, date_to: str, max_pages: int = 50) -> list[Document]
         log.warning("cbr/project_na недоступен: %s", exc)
 
     return docs
+
+
+def _is_document_bytes(data: bytes, content_type: str) -> bool:
+    from ..content import guess_ext
+
+    ext = guess_ext(data, content_type)
+    return bool(ext) and ext != ".html"
+
+
+def _save_download(folder: Path, name: str, resp) -> Path:
+    from ..content import write_bytes
+
+    return write_bytes(
+        folder,
+        name,
+        resp.content,
+        content_type=resp.headers.get("Content-Type", ""),
+        content_disposition=resp.headers.get("Content-Disposition", ""),
+    )
+
+
+def _file_href(tag) -> str | None:
+    from ..content import looks_like_file
+
+    if tag is None:
+        return None
+    href = tag.get("href") if hasattr(tag, "get") else None
+    if tag.name == "a" and href and looks_like_file(href):
+        return href
+    return None
+
+
+def _anchor_file_href(soup: BeautifulSoup, fragment: str) -> str | None:
+    """Файл у якоря #a_…: сама ссылка, иначе свежая версия в том же блоке."""
+    from ..content import looks_like_file
+
+    if not fragment:
+        return None
+    el = soup.find(id=fragment)
+    if not el:
+        return None
+    href = _file_href(el)
+    if href:
+        return href
+    for a in el.find_all("a", href=True):
+        if looks_like_file(a["href"]):
+            return a["href"]
+    for parent in el.parents:
+        versions = parent.select("a.versions_item[href]")
+        if versions:
+            return versions[0]["href"]
+        for a in parent.find_all("a", href=True):
+            if looks_like_file(a["href"]):
+                return a["href"]
+        classes = parent.get("class") or []
+        if "document-regular" in classes or parent.name in {"body", "html"}:
+            break
+    return None
+
+
+def _download_cbr_file(fetcher: Fetcher, url: str, folder: Path) -> Path | None:
+    from ..content import filename_from_url
+
+    try:
+        blob = fetcher.get(url)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cbr вложение %s: %s", url, exc)
+        return None
+    if not blob.content:
+        return None
+    return _save_download(folder, filename_from_url(url, "attachment"), blob)
+
+
+def fetch_content(doc: Document, folder: Path) -> Path | None:
+    """Файл документа (pdf/xlsx) или HTML нужной страницы, не витрина /press/event/."""
+    from ..content import filename_from_url, looks_like_file, write_bytes
+
+    if not doc.url:
+        return None
+    fetcher = Fetcher("cbr")
+    resp = fetcher.get(doc.url)
+    ctype = resp.headers.get("Content-Type", "")
+    if _is_document_bytes(resp.content, ctype):
+        return _save_download(folder, filename_from_url(doc.url, "document"), resp)
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    fragment = urlparse(doc.url).fragment
+    href = _anchor_file_href(soup, fragment)
+    if href:
+        full = urljoin(doc.url, href)
+        path = _download_cbr_file(fetcher, full, folder)
+        if path is not None:
+            return path
+
+    root = soup.select_one("#content") or soup
+    files: list[str] = []
+    seen: set[str] = set()
+    for link in root.find_all("a", href=True):
+        if not looks_like_file(link["href"]):
+            continue
+        full = urljoin(doc.url, link["href"])
+        host = urlparse(full).netloc.lower()
+        if "cbr.ru" not in host or full in seen:
+            continue
+        seen.add(full)
+        files.append(full)
+
+    # Витрина с архивом версий — не качаем всё подряд, оставляем HTML страницы.
+    preferred: Path | None = None
+    if 0 < len(files) <= 5:
+        for full in files:
+            path = _download_cbr_file(fetcher, full, folder)
+            if path is None:
+                continue
+            if preferred is None or (
+                path.suffix.lower() == ".pdf" and preferred.suffix.lower() != ".pdf"
+            ):
+                preferred = path
+    if preferred is not None:
+        return preferred
+    return write_bytes(folder, "article.html", resp.content)
